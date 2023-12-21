@@ -63,9 +63,15 @@ Example attribute configuration:
 
 ```json
 {
+    "dir": "images",
     "root_dir": "/tmp"
 }
 ```
+
+### dir (string)
+
+If specified, specified will set default [dir](#dir-string-required) on get_image() calls.
+If not specified, each get_image() call requires [dir](#dir-string-required) to be passed via *extra* (which is likely the most typical usage)
 
 ### root_dir (string)
 
