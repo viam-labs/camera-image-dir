@@ -24,8 +24,6 @@ from viam.logging import getLogger
 from viam.errors import NotImplementedError, ViamError, NotSupportedError
 from viam.media.video import CameraMimeType
 
-import time
-import asyncio
 import os
 import io
 
@@ -93,6 +91,16 @@ class imageDir(Camera, Reconfigurable):
             if extra['ext'] in ['jpg', 'jpeg', 'png', 'gif']:
                 ext = extra['ext']
         file_path = os.path.join(requested_dir, str(image_index) + '.' + ext)
+        if not os.path.isfile(file_path):
+            if extra.get("index"):
+                # specific index was requested, if it does not exist return error
+                raise ViamError("Image does not request at specified index")
+            else:
+                # loop back to 0 index, we might be at the last image in dir
+                image_index = 0
+                file_path = os.path.join(requested_dir, str(image_index) + '.' + ext)
+                if not os.path.isfile(file_path):
+                    raise ViamError("No image at 0 index")
         img: Image = Image.open(file_path)
         if (mime_type == None) or (mime_type == CameraMimeType.JPEG):
             return img.convert('RGB')
