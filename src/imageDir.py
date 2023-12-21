@@ -3,7 +3,7 @@ from typing_extensions import Self
 
 from typing import Any, Dict, Final, List, NamedTuple, Optional, Tuple, Union
 
-from PIL.Image import Image
+from PIL import Image
 
 from viam.media.video import NamedImage
 from viam.proto.common import ResponseMetadata
@@ -21,7 +21,7 @@ from viam.resource.types import Model, ModelFamily
 
 from viam.components.camera import Camera
 from viam.logging import getLogger
-from viam.errors import NotImplementedError, ViamError, NotSupportedError
+from viam.errors import ViamError, NotSupportedError
 from viam.media.video import CameraMimeType
 
 import os
@@ -33,8 +33,6 @@ class imageDir(Camera, Reconfigurable):
 
     class Properties(NamedTuple):
         supports_pcd: bool = False
-        intrinsic_parameters: IntrinsicParameters
-        distortion_parameters: DistortionParameters    
 
     MODEL: ClassVar[Model] = Model(ModelFamily("viam-labs", "camera"), "image-dir")
     
@@ -43,6 +41,7 @@ class imageDir(Camera, Reconfigurable):
     directory_index: dict
     root_dir: str = '/tmp'
     ext: str = 'jpg'
+    dir: str
 
     # Constructor
     @classmethod
@@ -63,13 +62,18 @@ class imageDir(Camera, Reconfigurable):
     def reconfigure(self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]):
         self.directory_index = {}
         self.root_dir = config.attributes.fields["root_dir"].string_value or '/tmp'
+        self.dir = config.attributes.fields["dir"].string_value
+
         return
     
     async def get_image(
         self, mime_type: str = "", *, extra: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None, **kwargs
-    ) -> Union[Image, RawImage]:
+    ) -> Union[Image.Image, RawImage]:
         if extra.get('dir') == None:
-            raise ViamError("'dir' must be passed in with 'extra', specifying image directory relative to the configured 'root_dir'")
+            if self.dir == None:
+                raise ViamError("'dir' must be passed in with 'extra', specifying image directory relative to the configured 'root_dir'")
+            else:
+                extra['dir'] = self.dir
         requested_dir = os.path.join(self.root_dir, extra['dir'])
         if not os.path.isdir(requested_dir):
             raise ViamError("requested 'dir' not found within configured 'root_dir'")
@@ -101,8 +105,11 @@ class imageDir(Camera, Reconfigurable):
                 file_path = os.path.join(requested_dir, str(image_index) + '.' + ext)
                 if not os.path.isfile(file_path):
                     raise ViamError("No image at 0 index")
-        img: Image = Image.open(file_path)
-        if (mime_type == None) or (mime_type == CameraMimeType.JPEG):
+        LOGGER.debug(file_path)
+        img = Image.open(file_path)
+        # increment for next get_image() call
+        self.directory_index[requested_dir] = image_index + 1
+        if (mime_type == "") or (mime_type == CameraMimeType.JPEG):
             return img.convert('RGB')
         elif mime_type == CameraMimeType.VIAM_RGBA:
             buf = io.BytesIO()
@@ -114,7 +121,7 @@ class imageDir(Camera, Reconfigurable):
 
     def _get_oldest_image_index(self, requested_dir):
         mtime = lambda f: os.stat(os.path.join(requested_dir, f)).st_mtime
-        return os.path.splitext(list(sorted(os.listdir(requested_dir), key=mtime))[0])[0]
+        return int(os.path.splitext(list(sorted(os.listdir(requested_dir), key=mtime))[0])[0])
 
     async def get_images(self, *, timeout: Optional[float] = None, **kwargs) -> Tuple[List[NamedImage], ResponseMetadata]:
         raise NotImplementedError()
