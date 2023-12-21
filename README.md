@@ -1,6 +1,6 @@
 # image-dir camera modular service
 
-*image-dir* is a Viam modular service that provides camera capabilities, based on sequential images captured in directories
+*image-dir* is a Viam modular service that provides camera capabilities, based on sequential images captured in directories.
 
 The model this module makes available is *viam-labs:camera:image-dir*
 
@@ -22,9 +22,10 @@ For example:
 ## API
 
 The image-dir resource implements the [rdk camera API](https://github.com/rdk/camera-api), specifically get_image().
+
 On each get_image() call, the next image will be returned sequentially (based on integer filename).
 If it is the first get_image() call for that directory since the component was initialized, the first image returned will be the one with the oldest timestamp - after which point images will be returned sequentially by [index](#index-integer).
-After the last image is returned, the next get_image() call will return the first image (start over).
+After the last image is returned, the next get_image() call will return the image at the 0 index (start at the beginning sequentially).
 
 The following can be passed via the *get_image()* extra parameter:
 
