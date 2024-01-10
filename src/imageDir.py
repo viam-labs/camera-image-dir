@@ -151,6 +151,7 @@ class imageDir(Camera, Reconfigurable):
     async def do_command(self, command: Mapping[str, ValueTypes], *,
                          timeout: Optional[float] = None,
                          **kwargs) -> Mapping[str, ValueTypes]:
+        ret = {}
         if command.get('set') != None:
             setDict = command.get('set')
             if setDict.get('dir') != None:
@@ -164,10 +165,14 @@ class imageDir(Camera, Reconfigurable):
             if setDict.get('index_reset') != None:
                 if setDict['index_reset'] == True:
                     # reset
-                    self.directory_index[requested_dir]  = self._get_oldest_image_index(requested_dir)
+                    index = self._get_oldest_image_index(requested_dir)
+                    self.directory_index[requested_dir]  = index
+                    ret = { "index" : index }
             if setDict.get('index_jog') != None:
-                self.directory_index[requested_dir] = self._jog_index(setDict['index_jog'], requested_dir)
-        return {}
+                index = self._jog_index(setDict['index_jog'], requested_dir)
+                self.directory_index[requested_dir] = index
+                ret = { "index" : index }
+        return ret
     
     async def get_properties(self, *, timeout: Optional[float] = None, **kwargs) -> Properties:
        return self.camera_properties
