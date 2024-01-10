@@ -21,7 +21,9 @@ For example:
 
 ## API
 
-The image-dir resource implements the [rdk camera API](https://github.com/rdk/camera-api), specifically get_image().
+The image-dir resource implements the [rdk camera API](https://github.com/rdk/camera-api), specifically get_image() and do_command().
+
+### get_image
 
 On each get_image() call, the next image will be returned sequentially (based on integer filename).
 If it is the first get_image() call for that directory since the component was initialized, the first image returned will be the one with the oldest timestamp - after which point images will be returned sequentially by [index](#index-integer).
@@ -29,21 +31,30 @@ After the last image is returned, the next get_image() call will return the imag
 
 The following can be passed via the *get_image()* extra parameter:
 
-### dir (string, *required*)
+#### dir (string, *required*)
 
 The directory from which to read images, within [root_dir](#root_dir).
 
-### ext (string)
+#### ext (string)
 
 The file extension to use when attempting to read the next image.
 If not specified, will default to 'jpg'.
 Accepted values are jpg|jpeg|png|gif.
 
-### index (integer)
+#### index (integer)
 
 If specified, return the image with this index (if it exists).
 Index is a proxy for the base filename - for example if [index](#index-integer) is *10* and [ext](#ext-string) is *jpg*, *10.jpg* will be returned if it exists.
 Passing [index](#index-integer) will also reset the incremental index for [dir](#dir-string-required).
+
+#### index_reset (boolean)
+
+If specified, index will be reset at the beginning, which is the image with the oldest timestamp in the [dir](#dir-string-required) - not always the 0 [index](#index-integer).
+
+#### index_jog (integer)
+
+If specified, move index by [index_jog](#index_jog-integer) and return the image at that index.
+Negative integers are accepted.
 
 Example:
 
@@ -51,11 +62,21 @@ Example:
 camera.get_image(extra={"dir":"pix","index":0}) # returns /tmp/pix/0.jpg
 camera.get_image(extra={"dir":"pix"}) # returns /tmp/pix/1.jpg
 camera.get_image(extra={"dir":"pix"}) # returns /tmp/pix/2.jpg
+camera.get_image(extra={"dir":"pix"}) # returns /tmp/pix/3.jpg
+camera.get_image(extra={"dir":"pix", "index_jog": -1}) # returns /tmp/pix/2.jpg
 camera.get_image(extra={"dir":"pix","index":1}) # returns /tmp/pix/1.jpg
 camera.get_image(extra={"dir":"pix"}) # returns /tmp/pix/2.jpg
 ```
 
-If *-1* passed as [index](#index-integer), it will reset at the beginning, which is in fact the image with the oldest timestamp in the [dir](#dir-string-required) - not always the 0 [index](#index-integer).
+### do_command()
+
+do_command allows [dir](#dir-string), [index](#index-integer), [index_reset](#index_reset-boolean), [index_jog](#index_jog-integer) and [ext](#ext-string) to be set via a 'set' command.
+
+Example:
+
+``` python
+camera.do_command({'set': {'index': 10}})
+```
 
 ## Viam Service Configuration
 
