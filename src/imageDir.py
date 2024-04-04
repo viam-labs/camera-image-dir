@@ -34,10 +34,12 @@ class imageDir(Camera, Reconfigurable):
 
     class Properties(NamedTuple):
         supports_pcd: bool = False
+        intrinsic_parameters = None
+        distortion_parameters = None
 
     MODEL: ClassVar[Model] = Model(ModelFamily("viam-labs", "camera"), "image-dir")
     
-    camera_properties: Camera.Properties = {}
+    camera_properties: Camera.Properties = Properties()
     # will store current get_image index for a given directory here
     directory_index: dict
     root_dir: str = '/tmp'
