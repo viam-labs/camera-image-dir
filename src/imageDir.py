@@ -8,19 +8,16 @@ from PIL import Image
 from viam.media.video import NamedImage
 from viam.proto.common import ResponseMetadata
 
-
-from viam.components.camera import DistortionParameters, IntrinsicParameters, RawImage
-
-
-
 from viam.module.types import Reconfigurable
 from viam.proto.app.robot import ComponentConfig
-from viam.proto.common import ResourceName, Vector3
+from viam.proto.common import ResourceName
 from viam.resource.base import ResourceBase
 from viam.resource.types import Model, ModelFamily
 from viam.components.component_base import ValueTypes
 
-from viam.components.camera import Camera
+from viam.components.camera import Camera, ViamImage
+from viam.media.utils.pil import pil_to_viam_image
+
 from viam.logging import getLogger
 from viam.errors import ViamError, NotSupportedError
 from viam.media.video import CameraMimeType
@@ -71,7 +68,7 @@ class imageDir(Camera, Reconfigurable):
     
     async def get_image(
         self, mime_type: str = "", *, extra: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None, **kwargs
-    ) -> Union[Image.Image, RawImage]:
+    ) -> ViamImage:
         if extra.get('dir') == None:
             if self.dir == None:
                 raise ViamError("'dir' must be passed in with 'extra', specifying image directory relative to the configured 'root_dir'")
@@ -110,17 +107,12 @@ class imageDir(Camera, Reconfigurable):
                 if not os.path.isfile(file_path):
                     raise ViamError("No image at 0 index for " + file_path)
         img = Image.open(file_path)
+
         # increment for next get_image() call
         self.directory_index[requested_dir] = image_index + 1
-        if (mime_type == "") or (mime_type == CameraMimeType.JPEG):
-            return img.convert('RGB')
-        elif mime_type == CameraMimeType.VIAM_RGBA:
-            buf = io.BytesIO()
-            img.save(buf, format='JPEG')
-            byte_im = buf.getvalue()
-            return RawImage(byte_im, CameraMimeType.JPEG)
-        else:
-            raise NotSupportedError("mime_type not supported")
+            
+        return pil_to_viam_image(img.convert('RGB'), mime_type)
+
 
     def _get_file_path(self, dir, index, ext):
         return os.path.join(dir, str(index) + '.' + ext)
