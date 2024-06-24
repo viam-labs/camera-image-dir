@@ -15,7 +15,8 @@ from viam.resource.base import ResourceBase
 from viam.resource.types import Model, ModelFamily
 from viam.components.component_base import ValueTypes
 
-from viam.components.camera import Camera, ViamImage
+from viam.components.camera import Camera
+from viam.media.video import ViamImage, CameraMimeType
 from viam.media.utils.pil import pil_to_viam_image
 
 from viam.logging import getLogger
@@ -111,7 +112,7 @@ class imageDir(Camera, Reconfigurable):
         # increment for next get_image() call
         self.directory_index[requested_dir] = image_index + 1
             
-        return pil_to_viam_image(img.convert('RGB'), mime_type)
+        return pil_to_viam_image(img.convert('RGB'), CameraMimeType.JPEG)
 
 
     def _get_file_path(self, dir, index, ext):
