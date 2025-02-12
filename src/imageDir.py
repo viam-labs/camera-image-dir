@@ -15,13 +15,11 @@ from viam.resource.base import ResourceBase
 from viam.resource.types import Model, ModelFamily
 from viam.components.component_base import ValueTypes
 
-from viam.components.camera import Camera
-from viam.media.video import ViamImage, CameraMimeType
-from viam.media.utils.pil import pil_to_viam_image
+from viam.components.camera import Camera, ViamImage
+from viam.media.utils.pil import pil_to_viam_image, CameraMimeType
 
 from viam.logging import getLogger
 from viam.errors import ViamError, NotSupportedError
-from viam.media.video import CameraMimeType
 
 import os
 import io
@@ -109,10 +107,12 @@ class imageDir(Camera, Reconfigurable):
                     raise ViamError("No image at 0 index for " + file_path)
         img = Image.open(file_path)
 
+        LOGGER.error(file_path)
+
         # increment for next get_image() call
         self.directory_index[requested_dir] = image_index + 1
             
-        return pil_to_viam_image(img.convert('RGB'), CameraMimeType.JPEG)
+        return pil_to_viam_image(img.convert('RGB'), CameraMimeType.from_string(mime_type))
 
 
     def _get_file_path(self, dir, index, ext):
