@@ -10,7 +10,7 @@ async def main():
     Resources must be pre-registered. See the `__init__.py` file.
     """
     module = Module.from_args()
-    module.add_model_from_registry(Camera.SUBTYPE, imageDir.MODEL)
+    module.add_model_from_registry(Camera.API, imageDir.MODEL)
     await module.start()
 
 if __name__ == "__main__":

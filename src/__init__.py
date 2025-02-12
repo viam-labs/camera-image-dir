@@ -7,4 +7,4 @@ from viam.resource.registry import Registry, ResourceCreatorRegistration
 
 from .imageDir import imageDir
 
-Registry.register_resource_creator(Camera.SUBTYPE, imageDir.MODEL, ResourceCreatorRegistration(imageDir.new, imageDir.validate))
+Registry.register_resource_creator(Camera.API, imageDir.MODEL, ResourceCreatorRegistration(imageDir.new, imageDir.validate))
