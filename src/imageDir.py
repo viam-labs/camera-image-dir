@@ -61,6 +61,7 @@ class imageDir(Camera, Reconfigurable):
     def reconfigure(self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]):
         self.directory_index = {}
         self.root_dir = config.attributes.fields["root_dir"].string_value or '/tmp'
+        self.ext = config.attributes.fields["ext"].string_value or 'jpg'
         self.dir = config.attributes.fields["dir"].string_value
 
         return

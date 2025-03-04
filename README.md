@@ -99,4 +99,9 @@ If not specified, each get_image() call requires [dir](#dir-string-required) to 
 If specified, specified [dir](#dir-string-required) on get_image() calls must exist within this location.
 If not specified, will default to */tmp*
 
+### ext (string)
+
+If specified will look for images with the specified extension.
+Valid values are 'jpg', 'jpeg', 'png', 'gif' (default is 'jpg')
+
 ## Troubleshooting
