@@ -1,13 +1,47 @@
-# image-dir camera modular service
+# `image-dir` camera module
 
-*image-dir* is a Viam modular service that provides camera capabilities, based on sequential images captured in directories.
+The `viam-labs:camera:image-dir` model implements the [Viam camera API](https://docs.viam.com/dev/reference/apis/components/camera/) allowing you to access sequential images from directories as if they were captured by a camera, allowing you to process pre-recorded image sequences.
 
-The model this module makes available is *viam-labs:camera:image-dir*
+Navigate to the **CONFIGURE** tab of your machine's page.
+Click the **+** button, select **Component or service**, then select the `camera / image-dir` model provided by the [`image-dir` module](https://app.viam.com/module/viam-labs/image-dir).
+Click **Add module**, enter a name for your camera, and click **Create**.
+
+## Configure your `image-dir` camera
+
+On the new component panel, copy and paste the following attribute template into your camera's **Attributes** box:
+
+```json
+{
+  "dir": "<string>",
+  "root_dir": "<string>",
+  "ext": "<string>"
+}
+```
+
+### Attributes
+
+The following attributes are available for `viam-labs:camera:image-dir` cameras:
+
+| Name       | Type   | Inclusion | Description |
+| ---------- | ------ | --------- | ----------- |
+| `dir`      | string | Optional  | Default directory from which to read images within `root_dir` |
+| `root_dir` | string | Optional  | Root directory containing image directories (defaults to `/tmp`) |
+| `ext`      | string | Optional  | File extension to look for (defaults to `jpg`, valid: `jpg`, `jpeg`, `png`, `gif`) |
+
+### Example Configuration
+
+```json
+{
+  "dir": "images",
+  "root_dir": "/tmp",
+  "ext": "jpg"
+}
+```
 
 ## Prerequisites
 
 One or more readable directories containing images in jpg|png|gif format.
-Within a directory, it is expected that images be specifically named in the format *integer*.*ext* starting with 0.jpg (or other accepted extension), increasing numerically.
+Within a directory, images must be named in the format *integer*.*ext* starting with 0.jpg (or other accepted extension), increasing numerically.
 
 For example:
 
@@ -21,15 +55,15 @@ For example:
 
 ## API
 
-The image-dir resource implements the [rdk camera API](https://github.com/rdk/camera-api), specifically get_image() and do_command().
+The `image-dir` resource implements the [camera API](https://docs.viam.com/dev/reference/apis/components/camera/), specifically `get_image()` and `do_command()`.
 
-### get_image
+### `get_image`
 
-On each get_image() call, the next image will be returned sequentially (based on integer filename).
-If it is the first get_image() call for that directory since the component was initialized, the first image returned will be the one with the oldest timestamp - after which point images will be returned sequentially by [index](#index-integer).
-After the last image is returned, the next get_image() call will return the image at the 0 index (start at the beginning sequentially).
+On each `get_image()` call, the next image will be returned sequentially (based on integer filename).
+If it is the first `get_image()` call for that directory since the component was initialized, the first image returned will be the one with the oldest timestamp - after which point images will be returned sequentially by [index](#index-integer).
+After the last image is returned, the next `get_image()` call will return the image at the 0 index (start at the beginning sequentially).
 
-The following can be passed via the *get_image()* extra parameter:
+The following can be passed with the `get_image()` extra parameter:
 
 #### dir (string, *required*)
 
@@ -74,34 +108,6 @@ do_command allows [dir](#dir-string), [index](#index-integer), [index_reset](#in
 
 Example:
 
-``` python
+```python
 camera.do_command({'set': {'index': 10}})
 ```
-
-## Viam Service Configuration
-
-Example attribute configuration:
-
-```json
-{
-    "dir": "images",
-    "root_dir": "/tmp"
-}
-```
-
-### dir (string)
-
-If specified, specified will set default [dir](#dir-string-required) on get_image() calls.
-If not specified, each get_image() call requires [dir](#dir-string-required) to be passed via *extra* (which is likely the most typical usage)
-
-### root_dir (string)
-
-If specified, specified [dir](#dir-string-required) on get_image() calls must exist within this location.
-If not specified, will default to */tmp*
-
-### ext (string)
-
-If specified will look for images with the specified extension.
-Valid values are 'jpg', 'jpeg', 'png', 'gif' (default is 'jpg')
-
-## Troubleshooting
