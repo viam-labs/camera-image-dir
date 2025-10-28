@@ -53,6 +53,12 @@ For example:
 4.jpg
 ```
 
+OR Viam timestamped binary image names in the following format
+```bash
+2000-10-28T00_00_00.123Z_<hash>.jpeg
+```
+
+
 ## API
 
 The `image-dir` resource implements the [camera API](https://docs.viam.com/dev/reference/apis/components/camera/), specifically `get_image()` and `do_command()`.
