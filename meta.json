@@ -9,5 +9,11 @@
       "model": "viam-labs:camera:image-dir"
     }
   ],
-  "entrypoint": "run.sh"
+  "build": {
+    "setup": "./setup.sh",
+    "build": "./build.sh",
+    "path": "dist/archive.tar.gz",
+    "arch": ["linux/amd64", "linux/arm64", "darwin/arm64", "windows/amd64"]
+  },
+  "entrypoint": "dist/main"
 }

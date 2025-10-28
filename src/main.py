@@ -3,7 +3,7 @@ import sys
 
 from viam.module.module import Module
 from viam.components.camera import Camera
-from .imageDir import imageDir
+from .models.image_dir import imageDir
 
 async def main():
     """This function creates and starts a new module, after adding all desired resources.
