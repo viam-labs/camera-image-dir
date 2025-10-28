@@ -107,6 +107,14 @@ class imageDir(Camera, Reconfigurable):
         if extra.get('ext') != None:
             if extra['ext'] in ['jpg', 'jpeg', 'png', 'gif']:
                 ext = extra['ext']
+                    
+        # Get max index to handle wraparound
+        max_index = self._get_greatest_image_index(requested_dir)
+        
+        # Wrap around if we've gone past the end
+        if image_index > max_index:
+            image_index = 0
+            LOGGER.info(f"Reached end of directory, wrapping to index 0")
                 
         file_path = self._get_file_path(requested_dir, image_index, ext)
         if not os.path.isfile(file_path):
@@ -121,7 +129,7 @@ class imageDir(Camera, Reconfigurable):
                     raise ViamError("No image at 0 index for " + file_path)
                 
         img = Image.open(file_path)
-        LOGGER.info(f"Serving image {file_path} for index {image_index}")
+        # LOGGER.info(f"Serving image {file_path} for index {image_index}")
 
         # increment for next get_image() call
         self.directory_index[requested_dir] = image_index + 1
