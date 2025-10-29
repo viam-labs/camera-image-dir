@@ -25,7 +25,7 @@ else
 fi
 
 # Install dependencies
-"$PY" -m pip install -U pip
-"$PY" -m pip install -r requirements.txt
+"$PY" -m pip install -U pip setuptools wheel
+"$PY" -m pip install -e ".[dev]"
 
 echo "setup.sh complete."

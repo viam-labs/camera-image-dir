@@ -8,7 +8,7 @@ if [ -f .installed ]
     python3 -m pip install --user virtualenv --break-system-packages
     python3 -m venv venv
     source venv/bin/activate
-    pip3 install --upgrade -r requirements.txt
+    python3 -m pip install -e ".[dev]"
     if [ $? -eq 0 ]
       then
         touch .installed

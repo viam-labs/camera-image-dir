@@ -1,7 +1,7 @@
-from typing import ClassVar, Mapping, Sequence, Any, Dict, Optional, Tuple, Final, List, cast
+from typing import ClassVar, Mapping, Any, Dict, Optional, Tuple, List
 from typing_extensions import Self
 
-from typing import Any, Dict, Final, List, NamedTuple, Optional, Tuple, Union
+from typing import NamedTuple
 
 from PIL import Image
 
@@ -19,10 +19,9 @@ from viam.components.camera import Camera, ViamImage
 from viam.media.utils.pil import pil_to_viam_image, CameraMimeType
 
 from viam.logging import getLogger
-from viam.errors import ViamError, NotSupportedError
+from viam.errors import ViamError
 
 import os
-import io
 from datetime import datetime, timezone
 
 import re
@@ -124,7 +123,7 @@ class imageDir(Camera, Reconfigurable):
         # Wrap around if we've gone past the end
         if image_index > max_index:
             image_index = 0
-            LOGGER.info(f"Reached end of directory, wrapping to index 0")
+            LOGGER.info("Reached end of directory, wrapping to index 0")
 
         file_path = self._get_file_path(requested_dir, image_index, ext)
         if not os.path.isfile(file_path):
