@@ -1,4 +1,4 @@
-from typing import ClassVar, Mapping, Any, Dict, Optional, Tuple, List
+from typing import ClassVar, Mapping, Any, Dict, Optional, Tuple, List, Sequence
 from typing_extensions import Self
 
 from typing import NamedTuple
@@ -55,11 +55,16 @@ class imageDir(Camera, Reconfigurable):
 
     # Validates JSON Configuration
     @classmethod
-    def validate(cls, config: ComponentConfig):
+    def validate(cls, config: ComponentConfig) -> Tuple[Sequence[str], Sequence[str]]:
+        errors = []
+        warnings = []
+        
         root_dir = config.attributes.fields["root_dir"].string_value or "/tmp"
         if not os.path.isdir(root_dir):
-            raise Exception("specified 'root_dir' does not exist")
-        return
+            errors.append("specified 'root_dir' does not exist")
+
+        # No implicit dependencies for this camera
+        return errors, warnings
 
     # Handles attribute reconfiguration
     def reconfigure(
@@ -69,8 +74,6 @@ class imageDir(Camera, Reconfigurable):
         self.root_dir = config.attributes.fields["root_dir"].string_value or "/tmp"
         self.ext = config.attributes.fields["ext"].string_value or "jpg"
         self.dir = config.attributes.fields["dir"].string_value
-
-        return
 
     async def get_image(
         self,
