@@ -87,8 +87,8 @@ class imageDir(Camera, Reconfigurable):
         if extra is None:
             extra = {}
 
-        if extra.get("dir") == None:
-            if self.dir == None:
+        if extra.get("dir") is None:
+            if self.dir is None:
                 raise ViamError(
                     "'dir' must be passed in with 'extra', specifying image directory relative to the configured 'root_dir'"
                 )
@@ -100,23 +100,23 @@ class imageDir(Camera, Reconfigurable):
             raise ViamError("requested 'dir' not found within configured 'root_dir'")
 
         image_index: int
-        if extra.get("index") != None:
+        if extra.get("index") is not None:
             image_index = extra["index"]
 
-        if extra.get("index_reset") != None:
-            if extra["index_reset"] == True:
+        if extra.get("index_reset") is not None:
+            if extra["index_reset"]:
                 # reset
                 image_index = self._get_oldest_image_index(requested_dir)
 
-        if extra.get("index_jog") != None:
+        if extra.get("index_jog") is not None:
             image_index = self._jog_index(extra["index_jog"], requested_dir)
-        elif self.directory_index.get(requested_dir) != None:
+        elif self.directory_index.get(requested_dir) is not None:
             image_index = self.directory_index[requested_dir]
         else:
             image_index = self._get_oldest_image_index(requested_dir)
 
         ext = self.ext
-        if extra.get("ext") != None:
+        if extra.get("ext") is not None:
             if extra["ext"] in ["jpg", "jpeg", "png", "gif"]:
                 ext = extra["ext"]
 
@@ -273,23 +273,23 @@ class imageDir(Camera, Reconfigurable):
         self, command: Mapping[str, ValueTypes], *, timeout: Optional[float] = None, **kwargs
     ) -> Mapping[str, ValueTypes]:
         ret = {}
-        if command.get("set") != None:
+        if command.get("set") is not None:
             setDict = command.get("set")
-            if setDict.get("dir") != None:
+            if setDict.get("dir") is not None:
                 self.dir = setDict.get("dir")
             requested_dir = os.path.join(self.root_dir, self.dir)
-            if setDict.get("ext") != None:
+            if setDict.get("ext") is not None:
                 self.ext = setDict.get("ext")
-            if setDict.get("index") != None:
+            if setDict.get("index") is not None:
                 if isinstance(setDict["index"], int):
                     self.directory_index[requested_dir] = setDict["index"]
-            if setDict.get("index_reset") != None:
-                if setDict["index_reset"] == True:
+            if setDict.get("index_reset") is not None:
+                if setDict["index_reset"]:
                     # reset
                     index = self._get_oldest_image_index(requested_dir)
                     self.directory_index[requested_dir] = index
                     ret = {"index": index}
-            if setDict.get("index_jog") != None:
+            if setDict.get("index_jog") is not None:
                 index = self._jog_index(setDict["index_jog"], requested_dir)
                 self.directory_index[requested_dir] = index
                 ret = {"index": index}
