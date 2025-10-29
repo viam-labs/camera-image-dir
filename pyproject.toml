@@ -10,6 +10,7 @@ dependencies = [
   "viam-sdk==0.58",
   "typing_extensions>=4.8",
   "Pillow",
+  "numpy==1.26.4",
 ]
 
 [project.optional-dependencies]
