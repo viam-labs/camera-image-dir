@@ -3,11 +3,24 @@
   "visibility": "public",
   "url": "https://github.com/viam-labs/camera-image-dir",
   "description": "A Viam camera model that reads images sequentially from a requested directory on the host machine",
+  "applications": null,
+  "markdown_link": "README.md",
+  "first_run": "",
+  "build": {
+    "build": "./build.sh",
+    "setup": "./setup.sh",
+    "path": "dist/archive.tar.gz",
+    "arch": [
+      "linux/amd64",
+      "linux/arm64",
+      "darwin/arm64"
+    ]
+  },
   "models": [
     {
       "api": "rdk:component:camera",
       "model": "viam-labs:camera:image-dir"
     }
   ],
-  "entrypoint": "run.sh"
+  "entrypoint": "dist/main"
 }

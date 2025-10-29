@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "camera-image-dir"
+version = "0.0.1"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "viam-sdk==0.58",
+  "typing_extensions>=4.8",
+  "Pillow",
+  "numpy==1.26.4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4.0",
+  "pytest-asyncio>=0.21.0",
+  "ruff>=0.1.0",
+  "pyinstaller",
+]
+
+# --- your existing config (unchanged) ---
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["."]
