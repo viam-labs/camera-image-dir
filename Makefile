@@ -7,7 +7,7 @@ ifeq ($(OS),Windows_NT)
 else
   VENV_BIN := venv/bin
   EXE_EXT  :=
-  SYS_PY   := python3.11
+  SYS_PY   := python3
 endif
 
 VENV := venv
