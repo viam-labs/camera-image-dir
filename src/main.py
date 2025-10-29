@@ -2,7 +2,7 @@ import asyncio
 
 from viam.module.module import Module
 from viam.components.camera import Camera
-from .models.image_dir import imageDir
+from src.models.image_dir import imageDir
 
 
 async def main():
