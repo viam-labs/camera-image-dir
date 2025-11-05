@@ -7,7 +7,7 @@ name = "camera-image-dir"
 version = "0.0.1"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-  "viam-sdk==0.58",
+  "viam-sdk",
   "typing_extensions>=4.8",
   "Pillow",
   "numpy==1.26.4",

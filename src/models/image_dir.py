@@ -27,13 +27,14 @@ from datetime import datetime, timezone
 import re
 
 LOGGER = getLogger(__name__)
+SUPPORTED_EXTS = {"jpg", "jpeg", "png", "gif"}
 
 
 class imageDir(Camera, Reconfigurable):
     class Properties(NamedTuple):
         supports_pcd: bool = False
-        intrinsic_parameters = None
-        distortion_parameters = None
+        intrinsic_parameters: Optional[Any] = None
+        distortion_parameters: Optional[Any] = None
 
     MODEL: ClassVar[Model] = Model(ModelFamily("viam-labs", "camera"), "image-dir")
 
@@ -43,7 +44,11 @@ class imageDir(Camera, Reconfigurable):
     root_dir: str = "/tmp"
     ext: str = "jpg"
     dir: str
-
+    
+    # Precomputed once per configured (dir, ext)
+    sorted_files: List[str]
+    dir_len: int
+    
     # Constructor
     @classmethod
     def new(
@@ -52,29 +57,60 @@ class imageDir(Camera, Reconfigurable):
         my_class = cls(config.name)
         my_class.reconfigure(config, dependencies)
         return my_class
-
-    # Validates JSON Configuration
+    
     @classmethod
-    def validate(cls, config: ComponentConfig) -> Tuple[Sequence[str], Sequence[str]]:
-        errors = []
-        warnings = []
-        
-        root_dir = config.attributes.fields["root_dir"].string_value or "/tmp"
+    def validate_config(cls, config: ComponentConfig) -> Tuple[Sequence[str], Sequence[str]]:
+        """Validates  the configuration for the imageDir camera."""
+        errors: List[str] = []
+        warnings: List[str] = []
+
+        attrs = config.attributes.fields
+        root_dir = attrs.get("root_dir").string_value if "root_dir" in attrs else "/tmp"
+        ext = attrs.get("ext").string_value if "ext" in attrs else "jpg"
+        sub_dir = attrs.get("dir").string_value if "dir" in attrs else ""
+
+        # Root dir must exist
         if not os.path.isdir(root_dir):
-            errors.append("specified 'root_dir' does not exist")
+            errors.append(f"specified 'root_dir' does not exist: {root_dir}")
 
-        # No implicit dependencies for this camera
+        # ext must be supported
+        if ext and ext.lower() not in SUPPORTED_EXTS:
+            errors.append(f"unsupported 'ext': {ext}. Supported: {sorted(SUPPORTED_EXTS)}")
+
+        # dir must be provided
+        if not sub_dir:
+            errors.append("'dir' is required and must be a subdirectory of 'root_dir'")
+
+        # If prior checks passed, validate the requested directory and files
+        if not errors:
+            requested_dir = os.path.join(root_dir, sub_dir)
+            if not os.path.isdir(requested_dir):
+                errors.append(f"requested 'dir' not found within configured 'root_dir': {requested_dir}")
+            else: 
+                files = [f for f in os.listdir(requested_dir) if f.lower().endswith(f".{ext.lower()}")]
+                if not files:
+                    errors.append(f"no files ending with .{ext} found in {requested_dir}")
+
         return errors, warnings
-
     # Handles attribute reconfiguration
     def reconfigure(
         self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
     ):
-        self.directory_index = {}
-        self.root_dir = config.attributes.fields["root_dir"].string_value or "/tmp"
-        self.ext = config.attributes.fields["ext"].string_value or "jpg"
-        self.dir = config.attributes.fields["dir"].string_value
+        attrs = config.attributes.fields
+        self.root_dir = attrs.get("root_dir").string_value if "root_dir" in attrs else "/tmp"
+        self.ext = (attrs.get("ext").string_value if "ext" in attrs else "jpg").lower()
+        self.dir = attrs.get("dir").string_value if "dir" in attrs else ""
 
+        requested_dir = os.path.join(self.root_dir, self.dir) if self.dir else self.root_dir
+        
+        # Build the fixed, chronologically sorted image list (files in the directory) once
+        self.sorted_files = self._get_sorted_files(requested_dir, self.ext)
+        self.dir_len = len(self.sorted_files)
+        
+        if self.dir_len == 0:
+            raise ViamError(f"No images with .{self.ext} found in {requested_dir}")
+        
+        self.directory_index = {requested_dir: 0}
     async def get_image(
         self,
         mime_type: str = "image/jpeg",
@@ -84,69 +120,51 @@ class imageDir(Camera, Reconfigurable):
         metadata: Optional[Mapping[str, Any]] = None,
         **kwargs,
     ) -> ViamImage:
-        if extra is None:
-            extra = {}
+        extra = extra or {}
+        # Fixed image list from configured directory; do not allow per-call dir/ext overrides.
+        if extra.get("dir") and extra["dir"] != self.dir:
+            raise ViamError("Per-call 'dir' override not supported; reconfigure instead.")
+        if extra.get("ext") and extra["ext"].lower() != self.ext:
+            raise ViamError("Per-call 'ext' override not supported; reconfigure instead.")
 
-        if extra.get("dir") is None:
-            if self.dir is None:
-                raise ViamError(
-                    "'dir' must be passed in with 'extra', specifying image directory relative to the configured 'root_dir'"
-                )
-            else:
-                extra["dir"] = self.dir
-        requested_dir = os.path.join(self.root_dir, extra["dir"])
-
+        requested_dir = os.path.join(self.root_dir, self.dir)
         if not os.path.isdir(requested_dir):
-            raise ViamError("requested 'dir' not found within configured 'root_dir'")
+            raise ViamError("configured directory no longer exists")
+        if self.dir_len == 0 or not self.sorted_files:
+            raise ViamError("No images preloaded. Did reconfigure fail?")
 
         image_index: int
+        
         if extra.get("index") is not None:
             image_index = extra["index"]
 
-        if extra.get("index_reset") is not None:
-            if extra["index_reset"]:
-                # reset
-                image_index = self._get_oldest_image_index(requested_dir)
+        if extra.get("index_reset") is not None and extra["index_reset"]:
+            image_index = 0
 
         if extra.get("index_jog") is not None:
             image_index = self._jog_index(extra["index_jog"], requested_dir)
         elif self.directory_index.get(requested_dir) is not None:
             image_index = self.directory_index[requested_dir]
         else:
-            image_index = self._get_oldest_image_index(requested_dir)
-
-        ext = self.ext
-        if extra.get("ext") is not None:
-            if extra["ext"] in ["jpg", "jpeg", "png", "gif"]:
-                ext = extra["ext"]
-
-        # Get max index to handle wraparound
-        max_index = self._get_greatest_image_index(requested_dir)
-
-        # Wrap around if we've gone past the end
-        if image_index > max_index:
             image_index = 0
-            LOGGER.info("Reached end of directory, wrapping to index 0")
-
-        file_path = self._get_file_path(requested_dir, image_index, ext)
+            
+        # Wrap with precomputed length and use precomputed sorted list
+        n = self.dir_len
+        image_index = int(image_index) % n
+        
+        file_path = os.path.join(requested_dir, self.sorted_files[image_index])
         if not os.path.isfile(file_path):
-            if extra.get("index"):
-                # specific index was requested, if it does not exist return error
-                raise ViamError("Image does not request at specified index")
-            else:
-                # loop back to 0 index, we might be at the last image in dir
-                image_index = 0
-                file_path = os.path.join(requested_dir, str(image_index) + "." + ext)
-                if not os.path.isfile(file_path):
-                    raise ViamError("No image at 0 index for " + file_path)
-
-        img = Image.open(file_path)
-        # LOGGER.info(f"Serving image {file_path} for index {image_index}")
-
-        # increment for next get_image() call
-        self.directory_index[requested_dir] = image_index + 1
-
-        return pil_to_viam_image(img.convert("RGB"), CameraMimeType.from_string(mime_type))
+            raise ViamError(f"Image file not found: {file_path}")
+        
+        # Open safely and convert to ViamImage
+        with Image.open(file_path) as img:
+            vi_img = pil_to_viam_image(img.convert("RGB"), CameraMimeType.from_string(mime_type))
+        
+        # Increment safely with modulo 
+        self.directory_index[requested_dir] = (image_index + 1) % n 
+        
+        return vi_img
+    
 
     def _parse_timestamp_from_filename(self, filename: str) -> Optional[datetime]:
         """
@@ -161,22 +179,20 @@ class imageDir(Camera, Reconfigurable):
         # Pattern: YYYY-MM-DDTHH_MM_SS.mmmZ
         # Example: 2025-10-09T15_27_01.690Z
         pattern = r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})_(\d{2})_(\d{2})\.(\d{3})Z"
-        match = re.match(pattern, name_without_ext)
-
-        if match:
+        if match := re.match(pattern, name_without_ext):
             year, month, day, hour, minute, second, millisecond = match.groups()
             try:
-                dt = datetime(
+                return datetime(
                     int(year),
                     int(month),
                     int(day),
                     int(hour),
                     int(minute),
                     int(second),
-                    int(millisecond) * 1000,  # Convert milliseconds to microseconds
+                    int(millisecond)
+                    * 1000,  # Convert milliseconds to microseconds
                     tzinfo=timezone.utc,
                 )
-                return dt
             except ValueError as e:
                 LOGGER.warning(f"Failed to parse timestamp from {filename}: {e}")
                 return None
@@ -188,7 +204,7 @@ class imageDir(Camera, Reconfigurable):
         Get all files in directory, sorted by timestamp (if parseable) or mtime.
         Returns list of filenames in chronological order.
         """
-        files = [f for f in os.listdir(dir) if f.endswith(f".{ext}")]
+        files = [f for f in os.listdir(dir) if f.lower().endswith(f".{ext.lower()}")]
         if not files:
             return []
 
@@ -203,35 +219,11 @@ class imageDir(Camera, Reconfigurable):
         files.sort(key=sort_key)
         return files
 
-    def _get_file_path(self, dir, index, ext):
-        """Get file path by index from sorted file list."""
-        sorted_files = self._get_sorted_files(dir, ext)
-        if not sorted_files or index >= len(sorted_files):
-            return None
-        return os.path.join(dir, sorted_files[index])
-
-    def _get_oldest_image_index(self, requested_dir):
-        """Return index 0 (oldest file after sorting)."""
-        return 0
-
-    def _get_greatest_image_index(self, requested_dir):
-        """Get the maximum valid index (count of files - 1)."""
-        sorted_files = self._get_sorted_files(requested_dir, self.ext)
-        if not sorted_files:
-            return 0
-        return len(sorted_files) - 1
-
     def _jog_index(self, index_jog, requested_dir):
-        """Move index forward or backward, wrapping around."""
-        current_index = self.directory_index.get(requested_dir, 0)
-        requested_index = current_index + index_jog
-        max_index = self._get_greatest_image_index(requested_dir)
-
-        if max_index == 0:
-            return 0
-
-        # Wrap around if out of bounds
-        return requested_index % (max_index + 1)
+        n = self.dir_len if self.dir_len > 0 else 1
+        current_index = self.directory_index.get(requested_dir, 0) % n
+        
+        return (current_index + int(index_jog)) % n
 
     async def get_images(
         self,
@@ -249,10 +241,8 @@ class imageDir(Camera, Reconfigurable):
         source_name = self.dir or ""
 
         # Apply filtering if specified
-        if filter_source_names is not None and len(filter_source_names) > 0:
-            # If filtering is requested and our source isn't in the list, return empty
-            if source_name not in filter_source_names:
-                return [], ResponseMetadata()
+        if filter_source_names is not None and len(filter_source_names) > 0 and source_name not in filter_source_names:
+            return [], ResponseMetadata()
 
         # Get the image
         image = await self.get_image(extra=extra, timeout=timeout)
@@ -275,24 +265,26 @@ class imageDir(Camera, Reconfigurable):
         ret = {}
         if command.get("set") is not None:
             setDict = command.get("set")
-            if setDict.get("dir") is not None:
-                self.dir = setDict.get("dir")
+            # Keep image list fixed; require reconfigure() to change dir/ext
+            if setDict.get("dir") is not None or setDict.get("ext") is not None:
+                raise ViamError("Changing 'dir' or 'ext' requires a reconfigure.")
+            
             requested_dir = os.path.join(self.root_dir, self.dir)
-            if setDict.get("ext") is not None:
-                self.ext = setDict.get("ext")
+            
             if setDict.get("index") is not None:
-                if isinstance(setDict["index"], int):
-                    self.directory_index[requested_dir] = setDict["index"]
-            if setDict.get("index_reset") is not None:
-                if setDict["index_reset"]:
-                    # reset
-                    index = self._get_oldest_image_index(requested_dir)
-                    self.directory_index[requested_dir] = index
-                    ret = {"index": index}
+                n = max(1, self.dir_len)
+                self.directory_index[requested_dir] = setDict["index"] % n
+                ret = {"index": self.directory_index[requested_dir]}
+                
+            if setDict.get("index_reset") is not None and setDict["index_reset"]:
+                self.directory_index[requested_dir] = 0
+                ret = {"index": 0}
+            
             if setDict.get("index_jog") is not None:
-                index = self._jog_index(setDict["index_jog"], requested_dir)
-                self.directory_index[requested_dir] = index
-                ret = {"index": index}
+                idx = self._jog_index(setDict["index_jog"], requested_dir)
+                self.directory_index[requested_dir] = idx
+                ret = {"index": idx}
+
         return ret
 
     async def get_properties(self, *, timeout: Optional[float] = None, **kwargs) -> Properties:
