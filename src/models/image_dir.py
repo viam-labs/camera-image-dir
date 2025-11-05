@@ -108,7 +108,7 @@ class imageDir(Camera, Reconfigurable):
         self.dir_len = len(self.sorted_files)
         
         if self.dir_len == 0:
-            raise ViamError(f"No images with .{self.ext} found in {requested_dir}")
+            raise ViamError(f"No images with valid timestamp or numeric index found in {requested_dir}")
         
         self.directory_index = {requested_dir: 0}
     async def get_image(
@@ -120,8 +120,11 @@ class imageDir(Camera, Reconfigurable):
         metadata: Optional[Mapping[str, Any]] = None,
         **kwargs,
     ) -> ViamImage:
+        
         extra = extra or {}
-        # Fixed image list from configured directory; do not allow per-call dir/ext overrides.
+        
+        # This code prevents changing dir/ext on a per-call basis
+        # Enforces reconfigure() for such changes
         if extra.get("dir") and extra["dir"] != self.dir:
             raise ViamError("Per-call 'dir' override not supported; reconfigure instead.")
         if extra.get("ext") and extra["ext"].lower() != self.ext:
@@ -135,16 +138,20 @@ class imageDir(Camera, Reconfigurable):
 
         image_index: int
         
+
+        # Direct index setting
         if extra.get("index") is not None:
             image_index = extra["index"]
-
-        if extra.get("index_reset") is not None and extra["index_reset"]:
+        # Reset to 0
+        elif extra.get("index_reset") is not None and extra["index_reset"]:
             image_index = 0
-
-        if extra.get("index_jog") is not None:
+        # Jog from current position
+        elif extra.get("index_jog") is not None:
             image_index = self._jog_index(extra["index_jog"], requested_dir)
+        # Use current directory index
         elif self.directory_index.get(requested_dir) is not None:
             image_index = self.directory_index[requested_dir]
+        # Default: Start at 0
         else:
             image_index = 0
             
@@ -167,57 +174,93 @@ class imageDir(Camera, Reconfigurable):
     
 
     def _parse_timestamp_from_filename(self, filename: str) -> Optional[datetime]:
-        """
-        Parse timestamp from filename format:
-        2025-10-09T15_27_01.690Z_<hash>.jpeg
+        # Only strip a known image extension; otherwise keep the full name
+        name_without_ext = filename
+        if "." in filename:
+            base, ext = filename.rsplit(".", 1)
+            if ext.lower() in SUPPORTED_EXTS:
+                name_without_ext = base
 
-        Returns None if no timestamp can be parsed.
-        """
-        # Remove extension
-        name_without_ext = os.path.splitext(filename)[0]
+        pattern = r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})_(\d{2})_(\d{2})(?:\.(\d{3}))?Z"
+        match = re.match(pattern, name_without_ext)
+        if not match:
+            return None
 
-        # Pattern: YYYY-MM-DDTHH_MM_SS.mmmZ
-        # Example: 2025-10-09T15_27_01.690Z
-        pattern = r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})_(\d{2})_(\d{2})\.(\d{3})Z"
-        if match := re.match(pattern, name_without_ext):
-            year, month, day, hour, minute, second, millisecond = match.groups()
+        year, month, day, hour, minute, second, ms = match.groups()
+        try:
+            return datetime(
+                int(year), int(month), int(day),
+                int(hour), int(minute), int(second),
+                int((ms or "000")) * 1000,
+                tzinfo=timezone.utc,
+            )
+        except ValueError as e:
+            LOGGER.warning(f"Failed to parse timestamp from {filename}: {e}")
+            return None
+        
+    def _extract_index(self, filename: str) -> tuple[Optional[str], Optional[int]]:
+        """
+        Decide an ordering key for a file.
+        Returns (kind, key):
+        - ('ts', microseconds_since_midnight) if a timestamp is present
+        - ('idx', integer_index) if a trailing integer is present
+        - (None, None) if neither is present
+        """
+        # Try timestamp first (re-uses your existing parser)
+        dt = self._parse_timestamp_from_filename(filename)
+        if dt is not None:
+            key = ((dt.hour * 60 + dt.minute) * 60 + dt.second) * 1_000_000 + dt.microsecond
+            return 'ts', key
+
+        # Then try trailing integer index
+        base = filename.rsplit('.', 1)[0] if '.' in filename else filename
+        m = re.search(r'(\d+)$', base)
+        if m:
             try:
-                return datetime(
-                    int(year),
-                    int(month),
-                    int(day),
-                    int(hour),
-                    int(minute),
-                    int(second),
-                    int(millisecond)
-                    * 1000,  # Convert milliseconds to microseconds
-                    tzinfo=timezone.utc,
-                )
-            except ValueError as e:
-                LOGGER.warning(f"Failed to parse timestamp from {filename}: {e}")
-                return None
+                return 'idx', int(m.group(1))
+            except ValueError:
+                pass
 
-        return None
+        return None, None
 
     def _get_sorted_files(self, dir, ext):
-        """
-        Get all files in directory, sorted by timestamp (if parseable) or mtime.
-        Returns list of filenames in chronological order.
-        """
         files = [f for f in os.listdir(dir) if f.lower().endswith(f".{ext.lower()}")]
         if not files:
             return []
 
-        # Sort by parsed timestamp, fall back to mtime
-        def sort_key(f):
-            parsed_time = self._parse_timestamp_from_filename(f)
-            if parsed_time:
-                return parsed_time.timestamp()
-            # Fall back to file modification time
-            return os.stat(os.path.join(dir, f)).st_mtime
+        ts, idx = [], []
+        for f in files:
+            kind, key = self._extract_index(f)
+            if kind == 'ts':
+                ts.append((f, key))
+            elif kind == 'idx':
+                idx.append((f, key))
+            # else: unknown for now; we may warn after choosing mode
 
-        files.sort(key=sort_key)
-        return files
+        # Choose majority; tie → timestamp
+        if len(ts) >= len(idx) and len(ts) > 0:
+            LOGGER.info(f"Sorting mode: timestamp ({len(ts)} files)")
+            keep = {f for f, _ in ts}
+            for f in files:
+                if f not in keep:
+                    LOGGER.warning(f"Skipping file without parsable timestamp: {f}")
+            ts.sort(key=lambda x: (x[1], x[0]))  # stable & deterministic
+            return [f for f, _ in ts]
+
+        if len(idx) > 0:
+            LOGGER.info(f"Sorting mode: index ({len(idx)} files)")
+            keep = {f for f, _ in idx}
+            for f in files:
+                if f not in keep:
+                    LOGGER.warning(f"Skipping file without numeric index: {f}")
+            idx.sort(key=lambda x: (x[1], x[0]))
+            return [f for f, _ in idx]
+
+        # Nothing matched either pattern
+        for f in files:
+            LOGGER.warning(f"Skipping file without timestamp or numeric index: {f}")
+        return []
+
 
     def _jog_index(self, index_jog, requested_dir):
         n = self.dir_len if self.dir_len > 0 else 1
