@@ -58,7 +58,7 @@ class imageDir(Camera, Reconfigurable):
     def validate(cls, config: ComponentConfig) -> Tuple[Sequence[str], Sequence[str]]:
         errors = []
         warnings = []
-        
+
         root_dir = config.attributes.fields["root_dir"].string_value or "/tmp"
         if not os.path.isdir(root_dir):
             errors.append("specified 'root_dir' does not exist")
@@ -94,11 +94,10 @@ class imageDir(Camera, Reconfigurable):
                 )
             else:
                 extra["dir"] = self.dir
-        LOGGER.info(f"mime_type: {mime_type}")
-        LOGGER.info(f"timeout: {timeout}")
-        LOGGER.info(f"extra: {extra}")
-        LOGGER.info(f"metadata: {metadata}")
-        LOGGER.info(f"kwargs: {kwargs}")
+
+        if len(mime_type) == 0:
+            LOGGER.warning("mime_type is empty, setting to image/jpeg")
+            mime_type = CameraMimeType.JPEG
 
         requested_dir = os.path.join(self.root_dir, extra["dir"])
 
