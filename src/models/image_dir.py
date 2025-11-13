@@ -94,6 +94,12 @@ class imageDir(Camera, Reconfigurable):
                 )
             else:
                 extra["dir"] = self.dir
+        LOGGER.info(f"mime_type: {mime_type}")
+        LOGGER.info(f"timeout: {timeout}")
+        LOGGER.info(f"extra: {extra}")
+        LOGGER.info(f"metadata: {metadata}")
+        LOGGER.info(f"kwargs: {kwargs}")
+
         requested_dir = os.path.join(self.root_dir, extra["dir"])
 
         if not os.path.isdir(requested_dir):
@@ -119,6 +125,7 @@ class imageDir(Camera, Reconfigurable):
         if extra.get("ext") is not None:
             if extra["ext"] in ["jpg", "jpeg", "png", "gif"]:
                 ext = extra["ext"]
+        LOGGER.info(f"ext: {ext}")
 
         # Get max index to handle wraparound
         max_index = self._get_greatest_image_index(requested_dir)
