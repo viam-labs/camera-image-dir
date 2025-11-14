@@ -29,6 +29,7 @@ import re
 LOGGER = getLogger(__name__)
 SUPPORTED_EXTS = {"jpg", "jpeg", "png", "gif"}
 
+
 class imageDir(Camera, Reconfigurable):
     class Properties(NamedTuple):
         supports_pcd: bool = False
@@ -42,12 +43,12 @@ class imageDir(Camera, Reconfigurable):
     directory_index: dict
     root_dir: str = "/tmp"
     ext: str = "jpg"
-    sub_dir: str = "" 
-    
+    sub_dir: str = ""
+
     # Precomputed once per configured (dir, ext)
-    sorted_files: List[str] = [] 
-    sub_dir_len: int = 0 
-    
+    sorted_files: List[str] = []
+    sub_dir_len: int = 0
+
     # Constructor
     @classmethod
     def new(
@@ -56,7 +57,7 @@ class imageDir(Camera, Reconfigurable):
         my_class = cls(config.name)
         my_class.reconfigure(config, dependencies)
         return my_class
-    
+
     @classmethod
     def validate_config(cls, config: ComponentConfig) -> Tuple[Sequence[str], Sequence[str]]:
         """Validates  the configuration for the imageDir camera."""
@@ -84,13 +85,18 @@ class imageDir(Camera, Reconfigurable):
         if not errors:
             requested_dir = os.path.join(root_dir, sub_dir)
             if not os.path.isdir(requested_dir):
-                errors.append(f"requested 'dir' not found within configured 'root_dir': {requested_dir}")
-            else: 
-                files = [f for f in os.listdir(requested_dir) if f.lower().endswith(f".{ext.lower()}")]
+                errors.append(
+                    f"requested 'dir' not found within configured 'root_dir': {requested_dir}"
+                )
+            else:
+                files = [
+                    f for f in os.listdir(requested_dir) if f.lower().endswith(f".{ext.lower()}")
+                ]
                 if not files:
                     errors.append(f"no files ending with .{ext} found in {requested_dir}")
 
         return errors, warnings
+
     # Handles attribute reconfiguration
     def reconfigure(
         self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
@@ -103,19 +109,25 @@ class imageDir(Camera, Reconfigurable):
         # Log after attributes are set
         LOGGER.info(
             "image-dir: reconfigured name=%s root=%s sub_dir=%s ext=%s",
-            self.name, self.root_dir, self.sub_dir, self.ext
+            self.name,
+            self.root_dir,
+            self.sub_dir,
+            self.ext,
         )
 
         requested_dir = os.path.join(self.root_dir, self.sub_dir) if self.sub_dir else self.root_dir
-        
+
         # Build the fixed, chronologically sorted image list (files in the directory) once
         self.sorted_files = self._get_sorted_files(requested_dir, self.ext)
         self.sub_dir_len = len(self.sorted_files)
-        
+
         if self.sub_dir_len == 0:
-            raise ViamError(f"No images with valid timestamp or numeric index found in {requested_dir}")
-        
+            raise ViamError(
+                f"No images with valid timestamp or numeric index found in {requested_dir}"
+            )
+
         self.directory_index = {requested_dir: 0}
+
     async def get_image(
         self,
         mime_type: str = "image/jpeg",
@@ -185,11 +197,10 @@ class imageDir(Camera, Reconfigurable):
         with Image.open(file_path) as img:
             vi_img = pil_to_viam_image(img.convert("RGB"), mt)
 
-        # Increment safely with modulo 
-        self.directory_index[requested_dir] = (image_index + 1) % n 
+        # Increment safely with modulo
+        self.directory_index[requested_dir] = (image_index + 1) % n
 
         return vi_img
-    
 
     def _parse_timestamp_from_filename(self, filename: str) -> Optional[datetime]:
         # Only strip a known image extension; otherwise keep the full name
@@ -207,15 +218,19 @@ class imageDir(Camera, Reconfigurable):
         year, month, day, hour, minute, second, ms = match.groups()
         try:
             return datetime(
-                int(year), int(month), int(day),
-                int(hour), int(minute), int(second),
+                int(year),
+                int(month),
+                int(day),
+                int(hour),
+                int(minute),
+                int(second),
                 int((ms or "000")) * 1000,
                 tzinfo=timezone.utc,
             )
         except ValueError as e:
             LOGGER.warning(f"Failed to parse timestamp from {filename}: {e}")
             return None
-        
+
     def _extract_index(self, filename: str) -> tuple[Optional[str], Optional[int]]:
         """
         Decide an ordering key for a file.
@@ -228,14 +243,14 @@ class imageDir(Camera, Reconfigurable):
         dt = self._parse_timestamp_from_filename(filename)
         if dt is not None:
             key = ((dt.hour * 60 + dt.minute) * 60 + dt.second) * 1_000_000 + dt.microsecond
-            return 'ts', key
+            return "ts", key
 
         # Then try trailing integer index
-        base = filename.rsplit('.', 1)[0] if '.' in filename else filename
-        m = re.search(r'(\d+)$', base)
+        base = filename.rsplit(".", 1)[0] if "." in filename else filename
+        m = re.search(r"(\d+)$", base)
         if m:
             try:
-                return 'idx', int(m.group(1))
+                return "idx", int(m.group(1))
             except ValueError:
                 pass
 
@@ -249,9 +264,9 @@ class imageDir(Camera, Reconfigurable):
         ts, idx = [], []
         for f in files:
             kind, key = self._extract_index(f)
-            if kind == 'ts':
+            if kind == "ts":
                 ts.append((f, key))
-            elif kind == 'idx':
+            elif kind == "idx":
                 idx.append((f, key))
             # else: unknown for now; we may warn after choosing mode
 
@@ -281,7 +296,7 @@ class imageDir(Camera, Reconfigurable):
     def _jog_index(self, index_jog, requested_dir):
         n = self.sub_dir_len if self.sub_dir_len > 0 else 1
         current_index = self.directory_index.get(requested_dir, 0) % n
-        
+
         return (current_index + int(index_jog)) % n
 
     async def get_images(
@@ -300,7 +315,11 @@ class imageDir(Camera, Reconfigurable):
         source_name = self.sub_dir or ""
 
         # Apply filtering if specified
-        if filter_source_names is not None and len(filter_source_names) > 0 and source_name not in filter_source_names:
+        if (
+            filter_source_names is not None
+            and len(filter_source_names) > 0
+            and source_name not in filter_source_names
+        ):
             return [], ResponseMetadata()
 
         # Get the image
@@ -327,18 +346,18 @@ class imageDir(Camera, Reconfigurable):
             # Keep image list fixed; require reconfigure() to change dir/ext
             if setDict.get("dir") is not None or setDict.get("ext") is not None:
                 raise ViamError("Changing 'dir' or 'ext' requires a reconfigure.")
-            
+
             requested_dir = os.path.join(self.root_dir, self.sub_dir)
-            
+
             if setDict.get("index") is not None:
                 n = max(1, self.sub_dir_len)
                 self.directory_index[requested_dir] = setDict["index"] % n
                 ret = {"index": self.directory_index[requested_dir]}
-                
+
             if setDict.get("index_reset") is not None and setDict["index_reset"]:
                 self.directory_index[requested_dir] = 0
                 ret = {"index": 0}
-            
+
             if setDict.get("index_jog") is not None:
                 idx = self._jog_index(setDict["index_jog"], requested_dir)
                 self.directory_index[requested_dir] = idx
