@@ -1,11 +1,93 @@
 # tests/test_index_logic.py
 import os
 import shutil
+import tempfile
 import time
+
 import pytest
+from PIL import Image
+from google.protobuf.struct_pb2 import Struct
 
 from viam.errors import ViamError
+from viam.proto.app.robot import ComponentConfig
 from src.models.image_dir import imageDir
+
+
+def write_img(path: str, size=(8, 8)) -> None:
+    """Create a tiny image file at `path`."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    img = Image.new("RGB", size, color=(255, 255, 255))
+    img.save(path)
+
+
+def make_dir_with_images(
+    seq_name: str,
+    bases,
+    ext: str = "jpg",
+    set_mtimes=None,
+):
+    """
+    Create a temp root directory, a subdirectory named `seq_name`,
+    and write one image per entry in `bases`.
+
+    Returns (root, sub, filenames).
+    """
+    root = tempfile.mkdtemp(prefix="image-dir-")
+    sub = seq_name
+    seq_dir = os.path.join(root, sub)
+    os.makedirs(seq_dir, exist_ok=True)
+
+    bases = list(bases)
+    if set_mtimes is None:
+        set_mtimes = [time.time()] * len(bases)
+    else:
+        set_mtimes = list(set_mtimes)
+        # pad if fewer mtimes than bases
+        if len(set_mtimes) < len(bases):
+            set_mtimes += [set_mtimes[-1]] * (len(bases) - len(set_mtimes))
+
+    filenames = []
+    for base, mtime in zip(bases, set_mtimes):
+        filename = f"{base}.{ext}"
+        path = os.path.join(seq_dir, filename)
+        write_img(path)
+        os.utime(path, (mtime, mtime))
+        filenames.append(filename)
+
+    return root, sub, filenames
+
+
+def make_config(name: str, root_dir: str, sub_dir: str, ext: str) -> ComponentConfig:
+    """Minimal ComponentConfig for imageDir.new."""
+    cfg = ComponentConfig()
+    cfg.name = name
+    attrs = Struct()
+    attrs.update(
+        {
+            "root_dir": root_dir,
+            "dir": sub_dir,
+            "ext": ext,
+        }
+    )
+    cfg.attributes.CopyFrom(attrs)
+    return cfg
+
+
+# ---- timestamp parsing ----
+
+def test_parse_timestamp_valid():
+    cam = imageDir("cam")
+    dt = cam._parse_timestamp_from_filename("2025-10-09T15_27_01.690Z_abc.jpeg")
+    assert dt is not None
+    assert (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, dt.microsecond) == (
+        2025,
+        10,
+        9,
+        15,
+        27,
+        1,
+        690_000,
+    )
 
 
 # ---- timestamp parsing ----
@@ -42,7 +124,7 @@ def test_timestamp_parsing_edge_cases():
 
 
 # ---- sorting (timestamp vs index) ----
-def test_get_sorted_files_prefers_parsed_timestamp(make_dir_with_images):
+def test_get_sorted_files_prefers_parsed_timestamp():
     bases = ["2025-10-09T10_00_00.000Z_a", "2025-10-09T09_00_00.000Z_b"]
     later = time.time() + 100
     earlier = time.time() - 100
@@ -53,14 +135,14 @@ def test_get_sorted_files_prefers_parsed_timestamp(make_dir_with_images):
     assert files == ["2025-10-09T09_00_00.000Z_b.jpg", "2025-10-09T10_00_00.000Z_a.jpg"]
 
 
-def test_get_sorted_files_no_pattern_returns_empty(make_dir_with_images):
+def test_get_sorted_files_no_pattern_returns_empty():
     root, sub, _ = make_dir_with_images("nopat", ["img_a", "img_b", "img_c"], ext="jpg")
     cam = imageDir("cam")
     files = cam._get_sorted_files(os.path.join(root, sub), "jpg")
     assert files == []
 
 
-def test_extension_case_insensitive(make_dir_with_images, make_config, write_img):
+def test_extension_case_insensitive():
     root, sub, _ = make_dir_with_images("mixed_case", [], ext="jpg")
     target = os.path.join(root, sub)
     # Use numeric names (valid 'idx' pattern); JPEG should be excluded because ext="jpg"
@@ -74,7 +156,7 @@ def test_extension_case_insensitive(make_dir_with_images, make_config, write_img
 
 # ---- get_image & index mechanics ----
 @pytest.mark.asyncio
-async def test_get_image_cycles_in_order(make_dir_with_images, make_config):
+async def test_get_image_cycles_in_order():
     root, sub, _ = make_dir_with_images("seq", ["0", "1", "2"], ext="jpg")
     cam = imageDir.new(make_config("cam", root, sub, "jpg"), {})
     await cam.get_image()
@@ -85,7 +167,7 @@ async def test_get_image_cycles_in_order(make_dir_with_images, make_config):
 
 
 @pytest.mark.asyncio
-async def test_get_image_rejects_dir_or_ext_override(make_dir_with_images, make_config):
+async def test_get_image_rejects_dir_or_ext_override():
     root, sub, _ = make_dir_with_images("seq", ["0", "1"], ext="jpg")
     cam = imageDir.new(make_config("cam", root, sub, "jpg"), {})
     with pytest.raises(ViamError):
@@ -95,7 +177,7 @@ async def test_get_image_rejects_dir_or_ext_override(make_dir_with_images, make_
 
 
 @pytest.mark.asyncio
-async def test_get_image_index_jog_reset_direct(make_dir_with_images, make_config):
+async def test_get_image_index_jog_reset_direct():
     root, sub, _ = make_dir_with_images("seq", ["0", "1", "2"], ext="jpg")
     cam = imageDir.new(make_config("cam", root, sub, "jpg"), {})
     seq_path = os.path.join(root, sub)
@@ -115,7 +197,7 @@ async def test_get_image_index_jog_reset_direct(make_dir_with_images, make_confi
 
 
 @pytest.mark.asyncio
-async def test_index_priority_order(make_dir_with_images, make_config):
+async def test_index_priority_order():
     root, sub, _ = make_dir_with_images("seq", ["0", "1", "2", "3", "4"], ext="jpg")
     cam = imageDir.new(make_config("cam", root, sub, "jpg"), {})
     seq_path = os.path.join(root, sub)
@@ -128,7 +210,7 @@ async def test_index_priority_order(make_dir_with_images, make_config):
 
 
 @pytest.mark.asyncio
-async def test_negative_and_large_indices(make_dir_with_images, make_config):
+async def test_negative_and_large_indices():
     root, sub, _ = make_dir_with_images("seq", ["0", "1", "2"], ext="jpg")
     cam = imageDir.new(make_config("cam", root, sub, "jpg"), {})
     seq_path = os.path.join(root, sub)
@@ -145,7 +227,7 @@ async def test_negative_and_large_indices(make_dir_with_images, make_config):
 
 # ---- get_images & do_command ----
 @pytest.mark.asyncio
-async def test_get_images_filters_by_source_name(make_dir_with_images, make_config):
+async def test_get_images_filters_by_source_name():
     root, sub, _ = make_dir_with_images("seqA", ["0", "1"], ext="jpg")
     cam = imageDir.new(make_config("cam", root, sub, "jpg"), {})
     images, _ = await cam.get_images(filter_source_names=["other"])
@@ -155,7 +237,7 @@ async def test_get_images_filters_by_source_name(make_dir_with_images, make_conf
 
 
 @pytest.mark.asyncio
-async def test_do_command_set_index_reset_and_jog(make_dir_with_images, make_config):
+async def test_do_command_set_index_reset_and_jog():
     root, sub, _ = make_dir_with_images("seq", ["0", "1", "2"], ext="jpg")
     cam = imageDir.new(make_config("cam", root, sub, "jpg"), {})
 
@@ -170,7 +252,7 @@ async def test_do_command_set_index_reset_and_jog(make_dir_with_images, make_con
 
 
 @pytest.mark.asyncio
-async def test_do_command_invalid_operations(make_dir_with_images, make_config):
+async def test_do_command_invalid_operations():
     root, sub, _ = make_dir_with_images("seq", ["0", "1"], ext="jpg")
     cam = imageDir.new(make_config("cam", root, sub, "jpg"), {})
     with pytest.raises(ViamError):
@@ -183,7 +265,7 @@ async def test_do_command_invalid_operations(make_dir_with_images, make_config):
 
 # ---- runtime edge case (dir removed after config) ----
 @pytest.mark.asyncio
-async def test_directory_deleted_after_config(make_dir_with_images, make_config):
+async def test_directory_deleted_after_config():
     root, sub, _ = make_dir_with_images("seq", ["0"], ext="jpg")
     cam = imageDir.new(make_config("cam", root, sub, "jpg"), {})
     shutil.rmtree(os.path.join(root, sub))
@@ -193,7 +275,7 @@ async def test_directory_deleted_after_config(make_dir_with_images, make_config)
 
 # ---- perf ----
 @pytest.mark.asyncio
-async def test_large_directory_performance(make_dir_with_images, make_config):
+async def test_large_directory_performance():
     # numeric suffixes → accepted by sorter
     bases = [f"img_{i:04d}" for i in range(100)]  # trailing digits OK (idx mode)
     root, sub, _ = make_dir_with_images("large", bases, ext="jpg")
@@ -209,7 +291,7 @@ async def test_large_directory_performance(make_dir_with_images, make_config):
 
 
 # ---- mixed timestamp + regular (regular are skipped) ----
-def test_mixed_timestamp_and_regular_files_sort(make_dir_with_images):
+def test_mixed_timestamp_and_regular_files_sort():
     bases = [
         "2025-01-01T12_00_00.000Z_a",
         "regular_image",  # skipped
