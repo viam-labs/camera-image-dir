@@ -74,7 +74,6 @@ def make_config(name: str, root_dir: str, sub_dir: str, ext: str) -> ComponentCo
 
 
 # ---- timestamp parsing ----
-
 def test_parse_timestamp_valid():
     cam = imageDir("cam")
     dt = cam._parse_timestamp_from_filename("2025-10-09T15_27_01.690Z_abc.jpeg")
@@ -88,23 +87,6 @@ def test_parse_timestamp_valid():
         1,
         690_000,
     )
-
-
-# ---- timestamp parsing ----
-def test_parse_timestamp_valid():
-    cam = imageDir("cam")
-    dt = cam._parse_timestamp_from_filename("2025-10-09T15_27_01.690Z_abc.jpeg")
-    assert dt is not None
-    assert (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, dt.microsecond) == (
-        2025,
-        10,
-        9,
-        15,
-        27,
-        1,
-        690_000,
-    )
-
 
 def test_parse_timestamp_invalid():
     cam = imageDir("cam")
