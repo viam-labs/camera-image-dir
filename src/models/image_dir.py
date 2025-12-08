@@ -27,13 +27,14 @@ from datetime import datetime, timezone
 import re
 
 LOGGER = getLogger(__name__)
+SUPPORTED_EXTS = {"jpg", "jpeg", "png", "gif"}
 
 
 class imageDir(Camera, Reconfigurable):
     class Properties(NamedTuple):
         supports_pcd: bool = False
-        intrinsic_parameters = None
-        distortion_parameters = None
+        intrinsic_parameters: Optional[Any] = None
+        distortion_parameters: Optional[Any] = None
 
     MODEL: ClassVar[Model] = Model(ModelFamily("viam-labs", "camera"), "image-dir")
 
@@ -42,7 +43,11 @@ class imageDir(Camera, Reconfigurable):
     directory_index: dict
     root_dir: str = "/tmp"
     ext: str = "jpg"
-    dir: str
+    sub_dir: str = ""
+
+    # Precomputed once per configured (dir, ext)
+    sorted_files: List[str] = []
+    sub_dir_len: int = 0
 
     # Constructor
     @classmethod
@@ -53,27 +58,75 @@ class imageDir(Camera, Reconfigurable):
         my_class.reconfigure(config, dependencies)
         return my_class
 
-    # Validates JSON Configuration
     @classmethod
-    def validate(cls, config: ComponentConfig) -> Tuple[Sequence[str], Sequence[str]]:
-        errors = []
-        warnings = []
-        
-        root_dir = config.attributes.fields["root_dir"].string_value or "/tmp"
-        if not os.path.isdir(root_dir):
-            errors.append("specified 'root_dir' does not exist")
+    def validate_config(cls, config: ComponentConfig) -> Tuple[Sequence[str], Sequence[str]]:
+        """Validates  the configuration for the imageDir camera."""
+        errors: List[str] = []
+        warnings: List[str] = []
 
-        # No implicit dependencies for this camera
+        attrs = config.attributes.fields
+        root_dir = attrs.get("root_dir").string_value if "root_dir" in attrs else "/tmp"
+        ext = attrs.get("ext").string_value if "ext" in attrs else "jpg"
+        sub_dir = attrs.get("dir").string_value if "dir" in attrs else ""
+
+        # Root dir must exist
+        if not os.path.isdir(root_dir):
+            errors.append(f"specified 'root_dir' does not exist: {root_dir}")
+
+        # ext must be supported
+        if ext and ext.lower() not in SUPPORTED_EXTS:
+            errors.append(f"unsupported 'ext': {ext}. Supported: {sorted(SUPPORTED_EXTS)}")
+
+        # dir must be provided
+        if not sub_dir:
+            errors.append("'dir' is required and must be a subdirectory of 'root_dir'")
+
+        # If prior checks passed, validate the requested directory and files
+        if not errors:
+            requested_dir = os.path.join(root_dir, sub_dir)
+            if not os.path.isdir(requested_dir):
+                errors.append(
+                    f"requested 'dir' not found within configured 'root_dir': {requested_dir}"
+                )
+            else:
+                files = [
+                    f for f in os.listdir(requested_dir) if f.lower().endswith(f".{ext.lower()}")
+                ]
+                if not files:
+                    errors.append(f"no files ending with .{ext} found in {requested_dir}")
+
         return errors, warnings
 
     # Handles attribute reconfiguration
     def reconfigure(
         self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
     ):
-        self.directory_index = {}
-        self.root_dir = config.attributes.fields["root_dir"].string_value or "/tmp"
-        self.ext = config.attributes.fields["ext"].string_value or "jpg"
-        self.dir = config.attributes.fields["dir"].string_value
+        attrs = config.attributes.fields
+        self.root_dir = attrs.get("root_dir").string_value if "root_dir" in attrs else "/tmp"
+        self.ext = (attrs.get("ext").string_value if "ext" in attrs else "jpg").lower()
+        self.sub_dir = attrs.get("dir").string_value if "dir" in attrs else ""
+
+        # Log after attributes are set
+        LOGGER.info(
+            "image-dir: reconfigured name=%s root=%s sub_dir=%s ext=%s",
+            self.name,
+            self.root_dir,
+            self.sub_dir,
+            self.ext,
+        )
+
+        requested_dir = os.path.join(self.root_dir, self.sub_dir) if self.sub_dir else self.root_dir
+
+        # Build the fixed, chronologically sorted image list (files in the directory) once
+        self.sorted_files = self._get_sorted_files(requested_dir, self.ext)
+        self.sub_dir_len = len(self.sorted_files)
+
+        if self.sub_dir_len == 0:
+            raise ViamError(
+                f"No images with valid timestamp or numeric index found in {requested_dir}"
+            )
+
+        self.directory_index = {requested_dir: 0}
 
     async def get_image(
         self,
@@ -84,161 +137,167 @@ class imageDir(Camera, Reconfigurable):
         metadata: Optional[Mapping[str, Any]] = None,
         **kwargs,
     ) -> ViamImage:
-        if extra is None:
-            extra = {}
+        extra = extra or {}
 
-        if extra.get("dir") is None:
-            if self.dir is None:
-                raise ViamError(
-                    "'dir' must be passed in with 'extra', specifying image directory relative to the configured 'root_dir'"
-                )
-            else:
-                extra["dir"] = self.dir
-        LOGGER.info(f"mime_type: {mime_type}")
-        LOGGER.info(f"timeout: {timeout}")
-        LOGGER.info(f"extra: {extra}")
-        LOGGER.info(f"metadata: {metadata}")
-        LOGGER.info(f"kwargs: {kwargs}")
+        # This code prevents changing dir/ext on a per-call basis
+        # Enforces reconfigure() for such changes
+        if extra.get("dir") and extra["dir"] != self.sub_dir:
+            raise ViamError("Per-call 'dir' override not supported; reconfigure instead.")
+        if extra.get("ext") and extra["ext"].lower() != self.ext:
+            raise ViamError("Per-call 'ext' override not supported; reconfigure instead.")
 
-        requested_dir = os.path.join(self.root_dir, extra["dir"])
-
+        requested_dir = os.path.join(self.root_dir, self.sub_dir)
         if not os.path.isdir(requested_dir):
-            raise ViamError("requested 'dir' not found within configured 'root_dir'")
+            raise ViamError("configured directory no longer exists")
+        if self.sub_dir_len == 0 or not self.sorted_files:
+            raise ViamError("No images preloaded. Did reconfigure fail?")
 
         image_index: int
+
+        # Direct index setting
         if extra.get("index") is not None:
             image_index = extra["index"]
-
-        if extra.get("index_reset") is not None:
-            if extra["index_reset"]:
-                # reset
-                image_index = self._get_oldest_image_index(requested_dir)
-
-        if extra.get("index_jog") is not None:
+        # Reset to 0
+        elif extra.get("index_reset") is not None and extra["index_reset"]:
+            image_index = 0
+        # Jog from current position
+        elif extra.get("index_jog") is not None:
             image_index = self._jog_index(extra["index_jog"], requested_dir)
+        # Use current directory index
         elif self.directory_index.get(requested_dir) is not None:
             image_index = self.directory_index[requested_dir]
+        # Default: Start at 0
         else:
-            image_index = self._get_oldest_image_index(requested_dir)
-
-        ext = self.ext
-        if extra.get("ext") is not None:
-            if extra["ext"] in ["jpg", "jpeg", "png", "gif"]:
-                ext = extra["ext"]
-        LOGGER.info(f"ext: {ext}")
-
-        # Get max index to handle wraparound
-        max_index = self._get_greatest_image_index(requested_dir)
-
-        # Wrap around if we've gone past the end
-        if image_index > max_index:
             image_index = 0
-            LOGGER.info("Reached end of directory, wrapping to index 0")
 
-        file_path = self._get_file_path(requested_dir, image_index, ext)
+        # Wrap with precomputed length and use precomputed sorted list
+        n = self.sub_dir_len
+        image_index = int(image_index) % n
+
+        file_path = os.path.join(requested_dir, self.sorted_files[image_index])
         if not os.path.isfile(file_path):
-            if extra.get("index"):
-                # specific index was requested, if it does not exist return error
-                raise ViamError("Image does not request at specified index")
-            else:
-                # loop back to 0 index, we might be at the last image in dir
-                image_index = 0
-                file_path = os.path.join(requested_dir, str(image_index) + "." + ext)
-                if not os.path.isfile(file_path):
-                    raise ViamError("No image at 0 index for " + file_path)
+            raise ViamError(f"Image file not found: {file_path}")
 
-        img = Image.open(file_path)
-        # LOGGER.info(f"Serving image {file_path} for index {image_index}")
+        # Resolve mime type
+        if isinstance(mime_type, CameraMimeType):
+            mt = mime_type
+        else:
+            mt_str = mime_type.strip().lower() if mime_type is not None else ""
+            # treat these as "no preference" and pick by ext
+            if mt_str in {"", "-"}:
+                mt_str = "image/png" if self.ext.lower() == "png" else "image/jpeg"
+            if mt_str == "image/jpg":
+                mt_str = "image/jpeg"
+            try:
+                mt = CameraMimeType.from_string(mt_str)
+            except Exception:
+                LOGGER.warning("Unsupported mime '%s'; defaulting to image/jpeg", mt_str)
+                mt = CameraMimeType.JPEG
 
-        # increment for next get_image() call
-        self.directory_index[requested_dir] = image_index + 1
+        with Image.open(file_path) as img:
+            vi_img = pil_to_viam_image(img.convert("RGB"), mt)
 
-        return pil_to_viam_image(img.convert("RGB"), CameraMimeType.from_string(mime_type))
+        # Increment safely with modulo
+        self.directory_index[requested_dir] = (image_index + 1) % n
+
+        return vi_img
 
     def _parse_timestamp_from_filename(self, filename: str) -> Optional[datetime]:
-        """
-        Parse timestamp from filename format:
-        2025-10-09T15_27_01.690Z_<hash>.jpeg
+        # Only strip a known image extension; otherwise keep the full name
+        name_without_ext = filename
+        if "." in filename:
+            base, ext = filename.rsplit(".", 1)
+            if ext.lower() in SUPPORTED_EXTS:
+                name_without_ext = base
 
-        Returns None if no timestamp can be parsed.
-        """
-        # Remove extension
-        name_without_ext = os.path.splitext(filename)[0]
-
-        # Pattern: YYYY-MM-DDTHH_MM_SS.mmmZ
-        # Example: 2025-10-09T15_27_01.690Z
-        pattern = r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})_(\d{2})_(\d{2})\.(\d{3})Z"
+        pattern = r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})_(\d{2})_(\d{2})(?:\.(\d{3}))?Z"
         match = re.match(pattern, name_without_ext)
+        if not match:
+            return None
 
-        if match:
-            year, month, day, hour, minute, second, millisecond = match.groups()
+        year, month, day, hour, minute, second, ms = match.groups()
+        try:
+            return datetime(
+                int(year),
+                int(month),
+                int(day),
+                int(hour),
+                int(minute),
+                int(second),
+                int((ms or "000")) * 1000,
+                tzinfo=timezone.utc,
+            )
+        except ValueError as e:
+            LOGGER.warning(f"Failed to parse timestamp from {filename}: {e}")
+            return None
+
+    def _extract_index(self, filename: str) -> tuple[Optional[str], Optional[int]]:
+        """
+        Decide an ordering key for a file.
+        Returns (kind, key):
+        - ('ts', microseconds_since_midnight) if a timestamp is present
+        - ('idx', integer_index) if a trailing integer is present
+        - (None, None) if neither is present
+        """
+        # Try timestamp first (re-uses your existing parser)
+        dt = self._parse_timestamp_from_filename(filename)
+        if dt is not None:
+            key = ((dt.hour * 60 + dt.minute) * 60 + dt.second) * 1_000_000 + dt.microsecond
+            return "ts", key
+
+        # Then try trailing integer index
+        base = filename.rsplit(".", 1)[0] if "." in filename else filename
+        m = re.search(r"(\d+)$", base)
+        if m:
             try:
-                dt = datetime(
-                    int(year),
-                    int(month),
-                    int(day),
-                    int(hour),
-                    int(minute),
-                    int(second),
-                    int(millisecond) * 1000,  # Convert milliseconds to microseconds
-                    tzinfo=timezone.utc,
-                )
-                return dt
-            except ValueError as e:
-                LOGGER.warning(f"Failed to parse timestamp from {filename}: {e}")
-                return None
+                return "idx", int(m.group(1))
+            except ValueError:
+                pass
 
-        return None
+        return None, None
 
     def _get_sorted_files(self, dir, ext):
-        """
-        Get all files in directory, sorted by timestamp (if parseable) or mtime.
-        Returns list of filenames in chronological order.
-        """
-        files = [f for f in os.listdir(dir) if f.endswith(f".{ext}")]
+        files = [f for f in os.listdir(dir) if f.lower().endswith(f".{ext.lower()}")]
         if not files:
             return []
 
-        # Sort by parsed timestamp, fall back to mtime
-        def sort_key(f):
-            parsed_time = self._parse_timestamp_from_filename(f)
-            if parsed_time:
-                return parsed_time.timestamp()
-            # Fall back to file modification time
-            return os.stat(os.path.join(dir, f)).st_mtime
+        ts, idx = [], []
+        for f in files:
+            kind, key = self._extract_index(f)
+            if kind == "ts":
+                ts.append((f, key))
+            elif kind == "idx":
+                idx.append((f, key))
+            # else: unknown for now; we may warn after choosing mode
 
-        files.sort(key=sort_key)
-        return files
+        # Sort by majority if mixed filenames: tie → timestamp
+        if len(ts) >= len(idx) and len(ts) > 0:
+            keep = {f for f, _ in ts}
+            for f in files:
+                if f not in keep:
+                    LOGGER.warning(f"Skipping file without parsable timestamp: {f}")
+            ts.sort(key=lambda x: (x[1], x[0]))  # stable & deterministic
+            return [f for f, _ in ts]
 
-    def _get_file_path(self, dir, index, ext):
-        """Get file path by index from sorted file list."""
-        sorted_files = self._get_sorted_files(dir, ext)
-        if not sorted_files or index >= len(sorted_files):
-            return None
-        return os.path.join(dir, sorted_files[index])
+        # Sort by numeric index
+        if len(idx) > 0:
+            keep = {f for f, _ in idx}
+            for f in files:
+                if f not in keep:
+                    LOGGER.warning(f"Skipping file without numeric index: {f}")
+            idx.sort(key=lambda x: (x[1], x[0]))
+            return [f for f, _ in idx]
 
-    def _get_oldest_image_index(self, requested_dir):
-        """Return index 0 (oldest file after sorting)."""
-        return 0
-
-    def _get_greatest_image_index(self, requested_dir):
-        """Get the maximum valid index (count of files - 1)."""
-        sorted_files = self._get_sorted_files(requested_dir, self.ext)
-        if not sorted_files:
-            return 0
-        return len(sorted_files) - 1
+        # Nothing matched either pattern
+        for f in files:
+            LOGGER.warning(f"Skipping file without timestamp or numeric index: {f}")
+        return []
 
     def _jog_index(self, index_jog, requested_dir):
-        """Move index forward or backward, wrapping around."""
-        current_index = self.directory_index.get(requested_dir, 0)
-        requested_index = current_index + index_jog
-        max_index = self._get_greatest_image_index(requested_dir)
+        n = self.sub_dir_len if self.sub_dir_len > 0 else 1
+        current_index = self.directory_index.get(requested_dir, 0) % n
 
-        if max_index == 0:
-            return 0
-
-        # Wrap around if out of bounds
-        return requested_index % (max_index + 1)
+        return (current_index + int(index_jog)) % n
 
     async def get_images(
         self,
@@ -253,13 +312,15 @@ class imageDir(Camera, Reconfigurable):
             extra = {}
 
         # Determine source name
-        source_name = self.dir or ""
+        source_name = self.sub_dir or ""
 
         # Apply filtering if specified
-        if filter_source_names is not None and len(filter_source_names) > 0:
-            # If filtering is requested and our source isn't in the list, return empty
-            if source_name not in filter_source_names:
-                return [], ResponseMetadata()
+        if (
+            filter_source_names is not None
+            and len(filter_source_names) > 0
+            and source_name not in filter_source_names
+        ):
+            return [], ResponseMetadata()
 
         # Get the image
         image = await self.get_image(extra=extra, timeout=timeout)
@@ -282,24 +343,26 @@ class imageDir(Camera, Reconfigurable):
         ret = {}
         if command.get("set") is not None:
             setDict = command.get("set")
-            if setDict.get("dir") is not None:
-                self.dir = setDict.get("dir")
-            requested_dir = os.path.join(self.root_dir, self.dir)
-            if setDict.get("ext") is not None:
-                self.ext = setDict.get("ext")
+            # Keep image list fixed; require reconfigure() to change dir/ext
+            if setDict.get("dir") is not None or setDict.get("ext") is not None:
+                raise ViamError("Changing 'dir' or 'ext' requires a reconfigure.")
+
+            requested_dir = os.path.join(self.root_dir, self.sub_dir)
+
             if setDict.get("index") is not None:
-                if isinstance(setDict["index"], int):
-                    self.directory_index[requested_dir] = setDict["index"]
-            if setDict.get("index_reset") is not None:
-                if setDict["index_reset"]:
-                    # reset
-                    index = self._get_oldest_image_index(requested_dir)
-                    self.directory_index[requested_dir] = index
-                    ret = {"index": index}
+                n = max(1, self.sub_dir_len)
+                self.directory_index[requested_dir] = setDict["index"] % n
+                ret = {"index": self.directory_index[requested_dir]}
+
+            if setDict.get("index_reset") is not None and setDict["index_reset"]:
+                self.directory_index[requested_dir] = 0
+                ret = {"index": 0}
+
             if setDict.get("index_jog") is not None:
-                index = self._jog_index(setDict["index_jog"], requested_dir)
-                self.directory_index[requested_dir] = index
-                ret = {"index": index}
+                idx = self._jog_index(setDict["index_jog"], requested_dir)
+                self.directory_index[requested_dir] = idx
+                ret = {"index": idx}
+
         return ret
 
     async def get_properties(self, *, timeout: Optional[float] = None, **kwargs) -> Properties:

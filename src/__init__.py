@@ -8,5 +8,5 @@ from viam.resource.registry import Registry, ResourceCreatorRegistration
 from .models.image_dir import imageDir
 
 Registry.register_resource_creator(
-    Camera.API, imageDir.MODEL, ResourceCreatorRegistration(imageDir.new, imageDir.validate)
+    Camera.API, imageDir.MODEL, ResourceCreatorRegistration(imageDir.new, imageDir.validate_config)
 )
