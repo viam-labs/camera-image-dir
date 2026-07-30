@@ -5,19 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "camera-image-dir"
 version = "0.0.1"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.15"
 dependencies = [
-  "viam-sdk",
+  "viam-sdk==0.79.1",
   "typing_extensions>=4.8",
   "Pillow",
-  "numpy==1.26.4",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=7.4.0",
   "pytest-asyncio>=0.21.0",
-  "ruff>=0.1.0",
+  # Pinned below 0.16: that release expanded ruff's default rule set (UP/I),
+  # which flags 38 pre-existing style issues. Unpin once those are cleaned up.
+  "ruff>=0.15,<0.16",
   "pyinstaller",
 ]
 
