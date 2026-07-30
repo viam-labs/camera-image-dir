@@ -8,21 +8,35 @@ on:
 
 jobs:
   build:
-    name: "Run unit tests"
+    name: "Lint, test, and cross-compile"
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: pip install --prefer-binary -e ".[dev]"
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
-      - name: Run lint
-        run: make lint
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
 
-      - name: Setup environment
-        run: make setup
+      - name: Vet
+        run: make vet
 
       - name: Run unit tests
         run: make test
+
+      # The module is pure Go, so every published platform must keep building
+      # from this one runner. Catches platform-specific breakage during review.
+      - name: Cross-compile all platforms
+        run: make all-platforms

@@ -7,9 +7,9 @@
   "markdown_link": "README.md",
   "first_run": "",
   "build": {
-    "build": "./build.sh",
-    "setup": "./setup.sh",
-    "path": "dist/archive.tar.gz",
+    "build": "make module",
+    "setup": "make tidy",
+    "path": "module.tar.gz",
     "arch": [
       "linux/amd64",
       "linux/arm64",
@@ -23,5 +23,5 @@
       "model": "viam-labs:camera:image-dir"
     }
   ],
-  "entrypoint": "dist/main"
+  "entrypoint": "bin/image-dir"
 }
