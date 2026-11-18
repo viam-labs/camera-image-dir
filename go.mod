@@ -2,7 +2,7 @@ module github.com/viam-labs/camera-image-dir
 
 go 1.26.10
 
-require go.viam.com/rdk v1.16.0
+require go.viam.com/rdk v1.17.0
 
 require (
 	cel.dev/expr v0.25.3 // indirect
@@ -184,19 +184,20 @@ require (
 	go.opentelemetry.io/contrib/detectors/gcp v1.45.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.63.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0 // indirect
-	go.opentelemetry.io/otel v1.45.0 // indirect
+	go.opentelemetry.io/otel v1.47.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.45.0 // indirect
-	go.opentelemetry.io/otel/metric v1.45.0 // indirect
-	go.opentelemetry.io/otel/sdk v1.45.0 // indirect
-	go.opentelemetry.io/otel/sdk/metric v1.45.0 // indirect
-	go.opentelemetry.io/otel/trace v1.45.0 // indirect
+	go.opentelemetry.io/otel/log v1.47.0 // indirect
+	go.opentelemetry.io/otel/metric v1.47.0 // indirect
+	go.opentelemetry.io/otel/sdk v1.47.0 // indirect
+	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
+	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
-	go.viam.com/api v0.1.603 // indirect
+	go.viam.com/api v0.1.606 // indirect
 	go.viam.com/test v1.2.4 // indirect
-	go.viam.com/utils v0.16.2 // indirect
+	go.viam.com/utils v0.17.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
